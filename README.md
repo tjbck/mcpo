@@ -6,6 +6,25 @@ mcpo is a dead-simple proxy that takes an MCP server command and makes it access
 
 No custom protocol. No glue code. No hassle.
 
+## 🤔 Why Use mcpo Instead of Native MCP?
+
+MCP servers usually speak over raw stdio, which is:
+
+- 🔓 Inherently insecure
+- ❌ Incompatible with most tools
+- 🧩 Missing standard features like docs, auth, error handling, etc.
+
+mcpo solves all of that—without extra effort:
+
+- ✅ Works instantly with OpenAPI tools, SDKs, and UIs
+- 🛡 Adds security, stability, and scalability using trusted web standards
+- 🧠 Auto-generates interactive docs for every tool, no config needed
+- 🔌 Uses pure HTTP—no sockets, no glue code, no surprises
+
+What feels like "one more step" is really fewer steps with better outcomes.
+
+mcpo makes your AI tools usable, secure, and interoperable—right now, with zero hassle.
+
 ## 🚀 Quick Usage
 
 We recommend using uv for lightning-fast startup and zero config.
