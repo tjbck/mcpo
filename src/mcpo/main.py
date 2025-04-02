@@ -124,7 +124,9 @@ async def lifespan(app: FastAPI):
                 yield
 
 
-async def run(host: str = "127.0.0.1", port: int = 8000, **kwargs):
+async def run(host: str = "127.0.0.1", port: int = None, **kwargs):
+    if port is None:
+        port = int(os.getenv("UVICORN_PORT", 8000))  # Use PORT from env, or fallback to 8000
     config_path = kwargs.get("config")
     server_command = kwargs.get("server_command")
     name = kwargs.get("name") or "MCP OpenAPI Proxy"
@@ -181,8 +183,8 @@ async def run(host: str = "127.0.0.1", port: int = 8000, **kwargs):
 
     else:
         raise ValueError("You must provide either server_command or config.")
-
-    config = uvicorn.Config(app=main_app, host=host, port=port, log_level="info")
+    log_level = os.getenv("UVICORN_LOG_LEVEL", "info")  # Use UVICORN_LOG_LEVEL from env, or fallback to info
+    config = uvicorn.Config(app=main_app, host=host, port=port, log_level=log_level)
     server = uvicorn.Server(config)
 
     await server.serve()

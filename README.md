@@ -27,6 +27,7 @@ mcpo makes your AI tools usable, secure, and interoperable—right now, with zer
 
 ## 🚀 Quick Usage
 
+
 We recommend using uv for lightning-fast startup and zero config.
 
 ```bash
@@ -47,6 +48,30 @@ uvx mcpo --port 8000 -- uvx mcp-server-time --local-timezone=America/New_York
 ```
 
 That’s it. Your MCP tool is now available at http://localhost:8000 with a generated OpenAPI schema — test it live at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+## 🐋 Docker
+
+mcpo can be run in Docker with the enclosed dockerfile. Mount a volume containing config.json to /app and add custom (offline/source) servers to /servers. 
+
+Each time the container launches it will look for new (python) tools it has not yet installed and install them + their requirements.txt with pip. 
+
+If config.json doesn't exist, the example.config.json will be used so that boot is successful.
+
+Example docker-compose:
+
+```yaml
+services:
+  mcpo:
+    build:
+      context: .
+      dockerfile: dockerfile
+    container_name: mcpo
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./app:/app
+      - ./servers:/servers
+```
 
 ### 🔄 Using a Config File
 
