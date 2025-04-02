@@ -1,12 +1,12 @@
 {
-    "mcpServers": {
-      "fetch": {
-        "command": "python",
-        "args": ["-m", "mcp_server_fetch"]
-      },
-      "time": {
-        "command": "python",
-        "args": ["-m", "mcp_server_time"]
-      }
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time"]
     }
   }
+}

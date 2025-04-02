@@ -1,41 +1,29 @@
 #!/usr/bin/env bash
 #
-# This script checks /servers for any new subfolders. If it finds
-# a subfolder whose requirements have not yet been installed,
+# This script checks /servers for any new subfolders (custom mcp servers). If it finds
+# a subfolder with python requirements.txt that have not yet been installed,
 # it installs them, then finally runs mcpo (or whatever command is passed).
-# In the event that /servers is empty, all default mcp servers are copied and the example config file is used.
+# /servers dir also allows adding custom executables, etc. on the fly.
+# TO DO: Add support for offline node modules.
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
-# If /servers is empty, clone the mcp servers repo and copy its "src" directory
 DIR="/servers"
 if [ ! -d "$DIR" ]; then
     echo "$DIR does not exist. Creating it..."
     mkdir -p "$DIR"
 fi
+
 if [ -d "$DIR" ] && [ -z "$(ls -A "$DIR")" ]; then
     # Servers directory is empty
-    echo "$DIR is empty, cloning example mcp servers..."
-    git clone --depth 1 --filter=blob:none --sparse https://github.com/modelcontextprotocol/servers.git /servers/tmp
-    git -C /servers/tmp sparse-checkout init --cone
-    git -C /servers/tmp sparse-checkout set src/time src/fetch
-    mv /servers/tmp/src/* /servers/
-    echo "listing /servers dir"
-    ls /servers
-    echo "listing /servers subdirs"
-    ls /servers/*
-    rm -rf /servers/tmp 
-    echo "Cloned and copied servers into /servers."
-    if [ -f "/app/config.json" ]; then
-      echo "Config supplied but there are no servers! Reverting to example config and backing up current config."
-      mv -f /app/config.json /app/backup.config.json
-    else
-      echo "No config supplied, using example config."
-    fi
-    cp /usr/local/bin/example.config.json /app/config.json
+    echo "$DIR is empty"
+fi
+
+if ! [ -f "/app/config.json" ]; then
+      echo "No config supplied, using example config"
+      cp /usr/local/bin/example.config.json /app/config.json
 else
-    # Servers directory is not empty
-    echo "$DIR exists and is not empty. Doing nothing."
+      echo "Config file exists."
 fi
 
 # Directory to track which /servers/ subfolders we've installed
@@ -48,8 +36,8 @@ mkdir -p "$INSTALLED_DIR"
 NEW_REQS_FILE=$(mktemp)
 
 # For each subfolder in /servers, if not yet installed, add its requirements
-if [ -d /servers ]; then
-    for folder in /servers/*; do
+if [ -d "$DIR" ]; then
+    for folder in "$DIR/*"; do
         if [ -d "$folder" ]; then
             subfolder="$(basename "$folder")"
             # Install the actual server
@@ -68,7 +56,7 @@ if [ -d /servers ]; then
     done
 fi
 
-# If NEW_REQS_FILE is non-empty, install everything in one go
+# If NEW_REQS_FILE is non-empty, install new python dependencies
 if [ -s "$NEW_REQS_FILE" ]; then
     pip install -r "$NEW_REQS_FILE"
 fi
