@@ -157,9 +157,11 @@ async def run(
         kwargs.get("description") or "Automatically generated API from MCP Tool Schemas"
     )
     version = kwargs.get("version") or "1.0"
+    ssl_certfile = kwargs.get("ssl_certfile")
+    ssl_keyfile= kwargs.get("ssl_keyfile")
 
     main_app = FastAPI(
-        title=name, description=description, version=version, lifespan=lifespan
+        title=name, description=description, version=version, ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile, lifespan=lifespan
     )
 
     main_app.add_middleware(
@@ -212,7 +214,7 @@ async def run(
     else:
         raise ValueError("You must provide either server_command or config.")
 
-    config = uvicorn.Config(app=main_app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(app=main_app, host=host, port=port, ssl_certfile=ssl_certfile , ssl_keyfile=ssl_keyfile ,log_level="info")
     server = uvicorn.Server(config)
 
     await server.serve()

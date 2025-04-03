@@ -41,6 +41,12 @@ def main(
     version: Annotated[
         Optional[str], typer.Option("--version", "-v", help="Server version")
     ] = None,
+    ssl_certfile: Annotated[
+        Optional[str], typer.Option("--ssl-certfile", "-t", help="SSL certfile")
+    ] = None,
+    ssl_keyfile: Annotated[
+        Optional[str], typer.Option("--ssl-keyfile", "-k",  help="SSL keyfile")
+    ] = None,
 ):
     server_command = None
     if not config:
@@ -87,6 +93,8 @@ def main(
             description=description,
             version=version,
             server_command=server_command,
+            ssl_certfile=ssl_certfile,
+            ssl_keyfile=ssl_keyfile,
         )
     )
 
