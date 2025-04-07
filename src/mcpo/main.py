@@ -1,18 +1,18 @@
 import json
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Dict, Any, Optional
+from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Body, Depends
+from fastapi import Body, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult
-
-from mcpo.utils.auth import get_verify_api_key
 from pydantic import create_model
 from starlette.routing import Mount
+
+from mcpo.utils.auth import get_verify_api_key
 
 
 def get_python_type(param_type: str):
@@ -25,7 +25,7 @@ def get_python_type(param_type: str):
     elif param_type == "number":
         return float
     elif param_type == "object":
-        return Dict[str, Any]
+        return dict[str, Any]
     elif param_type == "array":
         return list
     else:
@@ -165,7 +165,7 @@ async def lifespan(app: FastAPI):
 async def run(
     host: str = "127.0.0.1",
     port: int = 8000,
-    api_key: Optional[str] = "",
+    api_key: str | None = "",
     cors_allow_origins=["*"],
     **kwargs,
 ):
@@ -183,6 +183,7 @@ async def run(
     ssl_certfile = kwargs.get("ssl_certfile")
     ssl_keyfile = kwargs.get("ssl_keyfile")
     path_prefix = kwargs.get("path_prefix") or "/"
+    public_url = kwargs.get("public_url") or "http://" + host
 
     main_app = FastAPI(
         title=name,
@@ -218,7 +219,7 @@ async def run(
         for server_name, server_cfg in mcp_servers.items():
             sub_app = FastAPI(
                 title=f"{server_name}",
-                description=f"{server_name} MCP Server\n\n- [back to tool list](http://{host}:{port}/docs)",
+                description=f"{server_name} MCP Server\n\n- [back to tool list]({public_url}:{port}/docs)",
                 version="1.0",
                 lifespan=lifespan,
             )
@@ -238,7 +239,7 @@ async def run(
             sub_app.state.api_dependency = api_dependency
             main_app.mount(f"{path_prefix}{server_name}", sub_app)
             main_app.description += (
-                f"\n    - [{server_name}](http://{host}:{port}/{server_name}/docs)"
+                f"\n    - [{server_name}]({public_url}:{port}/{server_name}/docs)"
             )
     else:
         raise ValueError("You must provide either server_command or config.")
