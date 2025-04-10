@@ -77,7 +77,7 @@ def main(
     env_dict = {}
     if env:
         for var in env:
-            key, value = env.split("=", 1)
+            key, value = var.split("=", 1)
             env_dict[key] = value
 
     # Set environment variables
