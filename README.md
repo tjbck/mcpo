@@ -110,7 +110,7 @@ To contribute or run tests locally:
 
 2.  **Run tests:**
     ```bash
-    pytest
+    uv run pytest
     ```
 
 
