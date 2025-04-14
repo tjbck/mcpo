@@ -191,7 +191,7 @@ async def run(
                 # stdio
                 sub_app.state.command = server_cfg["command"]
                 sub_app.state.args = server_cfg.get("args", [])
-                sub_app.state.env = {**os.environ, **server_cfg.get("env", {})}
+                sub_app.state.env = {**server_cfg.get("env", {}), **os.environ}
             if server_cfg.get("url"):
                 # SSE
                 sub_app.state.server_type = "sse"
