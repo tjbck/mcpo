@@ -92,7 +92,11 @@ Example config.json:
       "args": ["mcp-server-time", "--local-timezone=America/New_York"]
     },
     "mcp_sse": {
-      "url": "http://127.0.0.1:8001/sse"
+      "url": "http://127.0.0.1:8001/sse",
+      "headers": {
+        "Authorization": "Bearer token",
+        "X-Custom-Header": "value"
+      }
     } // SSE MCP Server
   }
 }

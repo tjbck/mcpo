@@ -155,7 +155,17 @@ async def run(
         main_app.state.server_type = "sse"
         main_app.state.args = server_command[0]
         main_app.state.api_dependency = api_dependency
-        main_app.state.headers = kwargs.get("headers")
+        
+        # Parse headers from JSON string if provided
+        headers = kwargs.get("headers")
+        if headers and isinstance(headers, str):
+            try:
+                main_app.state.headers = json.loads(headers)
+            except json.JSONDecodeError:
+                print("Warning: Invalid JSON format for headers. Headers will be ignored.")
+                main_app.state.headers = None
+        else:
+            main_app.state.headers = headers
 
     elif server_command:
         main_app.state.command = server_command[0]

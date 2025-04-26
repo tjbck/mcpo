@@ -57,6 +57,9 @@ def main(
     path_prefix: Annotated[
         Optional[str], typer.Option("--path-prefix", help="URL prefix")
     ] = None,
+    headers: Annotated[
+        Optional[str], typer.Option("--headers", help="Headers for SSE connections in JSON format")
+    ] = None,
 ):
     server_command = None
     if not config_path:
@@ -126,6 +129,7 @@ def main(
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
             path_prefix=path_prefix,
+            headers=headers,
         )
     )
 
