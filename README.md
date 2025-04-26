@@ -46,6 +46,12 @@ To use an SSE-compatible MCP server, simply specify the server type and endpoint
 mcpo --port 8000 --api-key "top-secret" --server-type "sse" -- http://127.0.0.1:8001/sse
 ```
 
+You can also provide headers for the SSE connection:
+
+```bash
+mcpo --port 8000 --api-key "top-secret" --server-type "sse" --headers '{"Authorization": "Bearer token", "X-Custom-Header": "value"}' -- http://127.0.0.1:8001/sse
+```
+
 You can also run mcpo via Docker with no installation:
 
 ```bash

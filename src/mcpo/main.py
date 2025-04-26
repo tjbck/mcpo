@@ -98,7 +98,8 @@ async def lifespan(app: FastAPI):
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
                     yield
         if server_type == "sse":
-            async with sse_client(url=args[0], sse_read_timeout=None) as (reader, writer):
+            headers = getattr(app.state, "headers", None)
+            async with sse_client(url=args[0], sse_read_timeout=None, headers=headers) as (reader, writer):
                 async with ClientSession(reader, writer) as session:
                     app.state.session = session
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
@@ -154,6 +155,7 @@ async def run(
         main_app.state.server_type = "sse"
         main_app.state.args = server_command[0]
         main_app.state.api_dependency = api_dependency
+        main_app.state.headers = kwargs.get("headers")
 
     elif server_command:
         main_app.state.command = server_command[0]
@@ -196,6 +198,7 @@ async def run(
                 # SSE
                 sub_app.state.server_type = "sse"
                 sub_app.state.args = server_cfg["url"]
+                sub_app.state.headers = server_cfg.get("headers")
 
             sub_app.state.api_dependency = api_dependency
 
