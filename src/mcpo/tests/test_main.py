@@ -1,6 +1,6 @@
 import pytest
 from pydantic import BaseModel, Field
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Union
 
 from mcpo.utils.main import _process_schema_property
 
@@ -56,6 +56,17 @@ def test_process_simple_boolean_optional_no_default():
 def test_process_simple_number():
     schema = {"type": "number"}
     expected_type = float
+    expected_field = Field(default=..., description="")
+    result_type, result_field = _process_schema_property(
+        _model_cache, schema, "test", "prop", True
+    )
+    assert result_type == expected_type
+    assert result_field.default == expected_field.default
+
+
+def test_process_null():
+    schema = {"type": "null"}
+    expected_type = None
     expected_field = Field(default=..., description="")
     result_type, result_field = _process_schema_property(
         _model_cache, schema, "test", "prop", True
@@ -224,3 +235,78 @@ def test_model_caching():
     )
     assert result_type3 == result_type1  # Should be the same cached object
     assert len(_model_cache) == 2  # Only two unique models created
+
+
+def test_multi_type_property_with_list():
+    schema = {
+        "type": ["string", "number"],
+        "description": "A property with multiple types",
+    }
+    expected_field = Field(default=..., description="A property with multiple types")
+    result_type, result_field = _process_schema_property(
+        _model_cache, schema, "test", "multi_type", True
+    )
+
+    # Check if the resulting type is a Union
+    assert str(result_type).startswith("typing.Union[")
+
+    # Check if both types are in the Union
+    assert str in result_type.__args__
+    assert float in result_type.__args__
+
+    # Check field properties
+    assert result_field.default == expected_field.default
+    assert result_field.description == expected_field.description
+
+
+def test_multi_type_property_with_any_of():
+    schema = {
+        "anyOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The name of the function to call",
+                    },
+                    "arguments": {
+                        "type": "string",
+                        "description": "The arguments to pass to the function, as a JSON string",
+                        "default": "{}",
+                    },
+                },
+                "required": ["name"],
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "function_id": {
+                        "type": "int",
+                        "description": "The id of the function to call",
+                    },
+                },
+                "required": ["function_id"],
+            },
+            {
+                "type": "string",
+                "enum": ["auto", "none"],
+                "description": "Control function calling behavior",
+            },
+        ],
+        "description": "A property with multiple types",
+    }
+    result_type, result_field = _process_schema_property(
+        _model_cache, schema, "test", "multi_type", True
+    )
+
+    # Check if the resulting type is a Union
+    assert result_type.__origin__ == Union
+
+    # Check if the Union has the correct number of types
+    assert len(result_type.__args__) == 3
+    assert len(result_type.__args__[0].model_fields) == 2
+    assert len(result_type.__args__[1].model_fields) == 1
+    assert result_type.__args__[2] is str
+
+    # assert result_field parameter config
+    assert result_field.description == "A property with multiple types"

@@ -4,17 +4,16 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from starlette.routing import Mount
 
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from mcp.client.sse import sse_client
-
 from mcpo.utils.main import get_model_fields, get_tool_handler
-from mcpo.utils.auth import get_verify_api_key
+from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
@@ -37,21 +36,31 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     for tool in tools:
         endpoint_name = tool.name
         endpoint_description = tool.description
-        schema = tool.inputSchema
 
-        required_fields = schema.get("required", [])
-        properties = schema.get("properties", {})
+        inputSchema = tool.inputSchema
+        outputSchema = getattr(tool, "outputSchema", None)
 
-        form_model_name = f"{endpoint_name}_form_model"
-
-        model_fields = get_model_fields(
-            form_model_name,
-            properties,
-            required_fields,
+        form_model_fields = get_model_fields(
+            f"{endpoint_name}_form_model",
+            inputSchema.get("properties", {}),
+            inputSchema.get("required", []),
+            inputSchema.get("$defs", {}),
         )
 
+        response_model_fields = None
+        if outputSchema:
+            response_model_fields = get_model_fields(
+                f"{endpoint_name}_response_model",
+                outputSchema.get("properties", {}),
+                outputSchema.get("required", []),
+                outputSchema.get("$defs", {}),
+            )
+
         tool_handler = get_tool_handler(
-            session, endpoint_name, form_model_name, model_fields
+            session,
+            endpoint_name,
+            form_model_fields,
+            response_model_fields,
         )
 
         app.post(
@@ -99,7 +108,10 @@ async def lifespan(app: FastAPI):
                     yield
         if server_type == "sse":
             headers = getattr(app.state, "headers", None)
-            async with sse_client(url=args[0], sse_read_timeout=None, headers=headers) as (reader, writer):
+            async with sse_client(url=args[0], sse_read_timeout=None, headers=headers) as (
+              reader,
+              writer
+            ):
                 async with ClientSession(reader, writer) as session:
                     app.state.session = session
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
@@ -115,6 +127,7 @@ async def run(
 ):
     # Server API Key
     api_dependency = get_verify_api_key(api_key) if api_key else None
+    strict_auth = kwargs.get("strict_auth", False)
 
     # MCP Server
     server_type = kwargs.get("server_type")  # "stdio" or "sse" or "http"
@@ -133,7 +146,6 @@ async def run(
     ssl_certfile = kwargs.get("ssl_certfile")
     ssl_keyfile = kwargs.get("ssl_keyfile")
     path_prefix = kwargs.get("path_prefix") or "/"
-
     main_app = FastAPI(
         title=name,
         description=description,
@@ -150,6 +162,10 @@ async def run(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Add middleware to protect also documentation and spec
+    if api_key and strict_auth:
+        main_app.add_middleware(APIKeyMiddleware, api_key=api_key)
 
     if server_type == "sse":
         main_app.state.server_type = "sse"
@@ -209,6 +225,10 @@ async def run(
                 sub_app.state.server_type = "sse"
                 sub_app.state.args = server_cfg["url"]
                 sub_app.state.headers = server_cfg.get("headers")
+
+            # Add middleware to protect also documentation and spec
+            if api_key and strict_auth:
+                sub_app.add_middleware(APIKeyMiddleware, api_key=api_key)
 
             sub_app.state.api_dependency = api_dependency
 

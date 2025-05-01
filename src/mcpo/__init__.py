@@ -26,6 +26,10 @@ def main(
         Optional[str],
         typer.Option("--api-key", "-k", help="API key for authentication"),
     ] = None,
+    strict_auth: Annotated[
+        Optional[bool],
+        typer.Option("--strict-auth", help="API key protects all endpoints and documentation"),
+    ] = False,
     env: Annotated[
         Optional[List[str]], typer.Option("--env", "-e", help="Environment variables")
     ] = None,
@@ -119,6 +123,7 @@ def main(
             host,
             port,
             api_key=api_key,
+            strict_auth=strict_auth,
             cors_allow_origins=cors_allow_origins,
             server_type=server_type,
             config_path=config_path,
