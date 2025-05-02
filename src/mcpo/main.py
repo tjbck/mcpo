@@ -78,6 +78,7 @@ async def lifespan(app: FastAPI):
     command = getattr(app.state, "command", None)
     args = getattr(app.state, "args", [])
     env = getattr(app.state, "env", {})
+    token = getattr(app.state, "token", None)
 
     args = args if isinstance(args, list) else [args]
     api_dependency = getattr(app.state, "api_dependency", None)
@@ -107,7 +108,8 @@ async def lifespan(app: FastAPI):
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
                     yield
         if server_type == "sse":
-            async with sse_client(url=args[0], sse_read_timeout=None) as (
+            headers = {"Authorization": f"Bearer {token}"} if token else None
+            async with sse_client(url=args[0], sse_read_timeout=None, headers=headers) as (
                 reader,
                 writer,
             ):
@@ -212,6 +214,7 @@ async def run(
                 # SSE
                 sub_app.state.server_type = "sse"
                 sub_app.state.args = server_cfg["url"]
+                sub_app.state.token = server_cfg.get("token", None)
 
             # Add middleware to protect also documentation and spec
             if api_key and strict_auth:
