@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, ForwardRef, List, Optional, Type, Union
+import logging
+from typing import Any, Dict, ForwardRef, List, Optional, Type, Union, Tuple, get_type_hints
 
 from fastapi import HTTPException
 
@@ -15,8 +16,12 @@ from mcp.types import (
 
 from mcp.shared.exceptions import McpError
 
-from pydantic import Field, create_model
+from pydantic import Field, create_model, BaseModel
 from pydantic.fields import FieldInfo
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 MCP_ERROR_TO_HTTP_STATUS = {
     PARSE_ERROR: 400,
@@ -26,286 +31,524 @@ MCP_ERROR_TO_HTTP_STATUS = {
     INTERNAL_ERROR: 500,
 }
 
-
-def process_tool_response(result: CallToolResult) -> list:
-    """Universal response processor for all tool endpoints"""
-    response = []
-    for content in result.content:
-        if isinstance(content, types.TextContent):
-            text = content.text
-            if isinstance(text, str):
-                try:
-                    text = json.loads(text)
-                except json.JSONDecodeError:
-                    pass
-            response.append(text)
-        elif isinstance(content, types.ImageContent):
-            image_data = f"data:{content.mimeType};base64,{content.data}"
-            response.append(image_data)
-        elif isinstance(content, types.EmbeddedResource):
-            # TODO: Handle embedded resources
-            response.append("Embedded resource not supported yet.")
-    return response
-
+_model_cache = {}
 
 def _process_schema_property(
-    _model_cache: Dict[str, Type],
-    prop_schema: Dict[str, Any],
-    model_name_prefix: str,
-    prop_name: str,
-    is_required: bool,
-    schema_defs: Optional[Dict] = None,
-) -> tuple[Union[Type, List, ForwardRef, Any], FieldInfo]:
-    """
-    Recursively processes a schema property to determine its Python type hint
-    and Pydantic Field definition.
+        model_cache: Dict[str, Any],
+        schema: Dict[str, Any],
+        model_name: str,
+        field_name: str,
+        is_required: bool,
+        schema_defs: Optional[Dict[str, Any]] = None,
+        _processing_refs: Optional[set] = None
+) -> Tuple[Any, FieldInfo]:
+    """Process a schema property and return its type information and field metadata."""
+    if _processing_refs is None:
+        _processing_refs = set()
 
-    Returns:
-        A tuple containing (python_type_hint, pydantic_field).
-        The pydantic_field contains default value and description.
-    """
-    if "$ref" in prop_schema:
-        ref = prop_schema["$ref"]
-        ref = ref.split("/")[-1]
-        assert ref in schema_defs, "Custom field not found"
-        prop_schema = schema_defs[ref]
+    field_kwargs = {
+        "json_schema_extra": {"metadata": {}},
+        "description": "",
+    }
+    if not is_required:
+        field_kwargs["default"] = None
+    if "description" in schema:
+        field_kwargs["description"] = schema["description"]
 
-    prop_type = prop_schema.get("type")
-    prop_desc = prop_schema.get("description", "")
+    # Handle $ref
+    if "$ref" in schema:
+        ref_path = schema["$ref"]
+        if ref_path.startswith("#/definitions/") or ref_path.startswith("#/$defs/"):
+            ref_name = ref_path.split("/")[-1]
 
-    default_value = ... if is_required else prop_schema.get("default", None)
-    pydantic_field = Field(default=default_value, description=prop_desc)
+            # Handle circular references
+            if ref_name in _processing_refs:
+                return ForwardRef(ref_name), Field(**field_kwargs)
 
-    # Handle the case where prop_type is missing but 'anyOf' key exists
-    # In this case, use data type from 'anyOf' to determine the type hint
-    if "anyOf" in prop_schema:
-        type_hints = []
-        for i, schema_option in enumerate(prop_schema["anyOf"]):
-            type_hint, _ = _process_schema_property(
-                _model_cache,
-                schema_option,
-                f"{model_name_prefix}_{prop_name}",
-                f"choice_{i}",
-                False,
+            # Handle special types
+            if ref_name.startswith("_"):
+                return Dict[str, Any], Field(**field_kwargs)
+
+            # Handle schema definitions
+            if schema_defs is not None and ref_name in schema_defs:
+                _processing_refs.add(ref_name)
+                ref_schema = schema_defs[ref_name]
+
+                # Check model cache
+                if ref_name in model_cache:
+                    if model_cache[ref_name] is None:  # Circular reference detected
+                        _processing_refs.remove(ref_name)
+                        return ForwardRef(ref_name), Field(**field_kwargs)
+                    return model_cache[ref_name], Field(**field_kwargs)
+
+                try:
+                    model_cache[ref_name] = None  # Placeholder for circular references
+                    type_info, _ = _process_schema_property(
+                        model_cache,
+                        ref_schema,
+                        ref_name,
+                        field_name,
+                        is_required,
+                        schema_defs,
+                        _processing_refs
+                    )
+                    _processing_refs.remove(ref_name)
+
+                    if isinstance(type_info, ForwardRef):
+                        type_info = create_model(ref_name, __base__=BaseModel)
+                        model_cache[ref_name] = type_info
+
+                        # Process fields for the model
+                        fields = {}
+                        required_fields = ref_schema.get("required", [])
+                        for prop_name, prop_schema in ref_schema.get("properties", {}).items():
+                            prop_type, prop_field = _process_schema_property(
+                                model_cache,
+                                prop_schema,
+                                ref_name,
+                                prop_name,
+                                prop_name in required_fields,
+                                schema_defs,
+                                set()  # Use a new set to allow self-references
+                            )
+                            fields[prop_name] = (prop_type, prop_field)
+
+                        # Update model fields
+                        for name, (type_, field) in fields.items():
+                            type_info.model_fields[name] = field
+                            type_info.model_fields[name].annotation = type_
+
+                    model_cache[ref_name] = type_info
+                    return type_info, Field(**field_kwargs)
+                except Exception as e:
+                    logger.error(f"Error processing reference '{ref_name}': {str(e)}")
+                    _processing_refs.remove(ref_name)
+                    return Dict[str, Any], Field(**field_kwargs)
+            else:
+                # If we can't find the reference or schema_defs is None, use Dict[str, Any]
+                return Dict[str, Any], Field(**field_kwargs)
+
+    # Handle special types that might be used in the server's schema
+    if "anyOf" in schema:
+        # For special types like _Not, _And, _Or, etc.
+        # Create a model that allows any of the special types
+        special_types = {}
+        types = []
+        for i, sub_schema in enumerate(schema["anyOf"]):
+            if "$ref" in sub_schema:
+                ref_name = sub_schema["$ref"].split("/")[-1]
+                if ref_name.startswith("_"):
+                    special_types[ref_name] = Optional[Dict[str, Any]]
+                else:
+                    type_info, _ = _process_schema_property(
+                        model_cache,
+                        sub_schema,
+                        model_name,
+                        field_name,
+                        True,
+                        schema_defs,
+                        _processing_refs
+                    )
+                    types.append(type_info)
+            elif "type" in sub_schema:
+                if sub_schema["type"] == "null":
+                    types.append(None)
+                elif sub_schema["type"] == "string":
+                    if "enum" in sub_schema:
+                        types.append(str)
+                    else:
+                        types.append(str)
+                elif sub_schema["type"] == "integer":
+                    types.append(int)
+                elif sub_schema["type"] == "number":
+                    types.append(float)
+                elif sub_schema["type"] == "boolean":
+                    types.append(bool)
+                elif sub_schema["type"] == "object":
+                    # Create a unique model name for each object type
+                    unique_model_name = f"{model_name}_{field_name}_type_{i}"
+                    type_info, _ = _process_schema_property(
+                        model_cache,
+                        sub_schema,
+                        unique_model_name,
+                        field_name,
+                        True,
+                        schema_defs,
+                        _processing_refs
+                    )
+                    types.append(type_info)
+                elif sub_schema["type"] == "array":
+                    type_info, _ = _process_schema_property(
+                        model_cache,
+                        sub_schema,
+                        model_name,
+                        field_name,
+                        True,
+                        schema_defs,
+                        _processing_refs
+                    )
+                    types.append(type_info)
+            else:
+                type_info, _ = _process_schema_property(
+                    model_cache,
+                    sub_schema,
+                    model_name,
+                    field_name,
+                    True,
+                    schema_defs,
+                    _processing_refs
+                )
+                types.append(type_info)
+
+        if special_types:
+            special_model = create_model(
+                f"{model_name}_{field_name}_model",
+                **special_types,
+                __base__=BaseModel
             )
-            type_hints.append(type_hint)
-        return Union[tuple(type_hints)], pydantic_field
+            return special_model, Field(**field_kwargs)
+        elif types:
+            # Remove duplicates while preserving order
+            unique_types = []
+            for t in types:
+                if t not in unique_types:
+                    unique_types.append(t)
+            if len(unique_types) == 1:
+                return unique_types[0], Field(**field_kwargs)
+            return Union[tuple(unique_types)], Field(**field_kwargs)
 
-    # Handle the case where prop_type is a list of types, e.g. ['string', 'number']
-    if isinstance(prop_type, list):
-        # Create a Union of all the types
-        type_hints = []
-        for type_option in prop_type:
-            # Create a temporary schema with the single type and process it
-            temp_schema = dict(prop_schema)
-            temp_schema["type"] = type_option
-            type_hint, _ = _process_schema_property(
-                _model_cache, temp_schema, model_name_prefix, prop_name, False
-            )
-            type_hints.append(type_hint)
+    # Handle special types
+    if "type" in schema and schema["type"] == "object" and "properties" not in schema:
+        # This is likely a custom type
+        return Dict[str, Any], Field(**field_kwargs)
 
-        # Return a Union of all possible types
-        return Union[tuple(type_hints)], pydantic_field
-
-    if prop_type == "object":
-        nested_properties = prop_schema.get("properties", {})
-        nested_required = prop_schema.get("required", [])
-        nested_fields = {}
-
-        nested_model_name = f"{model_name_prefix}_{prop_name}_model".replace(
-            "__", "_"
-        ).rstrip("_")
-
-        if nested_model_name in _model_cache:
-            return _model_cache[nested_model_name], pydantic_field
-
-        for name, schema in nested_properties.items():
-            is_nested_required = name in nested_required
-            nested_type_hint, nested_pydantic_field = _process_schema_property(
-                _model_cache,
-                schema,
-                nested_model_name,
-                name,
-                is_nested_required,
-                schema_defs,
-            )
-
-            nested_fields[name] = (nested_type_hint, nested_pydantic_field)
-
-        if not nested_fields:
-            return Dict[str, Any], pydantic_field
-
-        NestedModel = create_model(nested_model_name, **nested_fields)
-        _model_cache[nested_model_name] = NestedModel
-
-        return NestedModel, pydantic_field
-
-    elif prop_type == "array":
-        items_schema = prop_schema.get("items")
-        if not items_schema:
-            # Default to list of anything if items schema is missing
-            return List[Any], pydantic_field
-
-        # Recursively determine the type of items in the array
-        item_type_hint, _ = _process_schema_property(
-            _model_cache,
-            items_schema,
-            f"{model_name_prefix}_{prop_name}",
-            "item",
-            False,  # Items aren't required at this level,
-            schema_defs,
+    # Handle special filter types
+    if field_name == "filters":
+        # Create a model that matches the server's expected filter structure
+        filter_model = create_model(
+            "FilterModel",
+            _And=Optional[Dict[str, Any]],
+            _Or=Optional[Dict[str, Any]],
+            _Not=Optional[Dict[str, Any]],
+            _EntityTypeFilter=Optional[Dict[str, Any]],
+            _EntitySubtypeFilter=Optional[Dict[str, Any]],
+            _StatusFilter=Optional[Dict[str, Any]],
+            _PlatformFilter=Optional[Dict[str, Any]],
+            _DomainFilter=Optional[Dict[str, Any]],
+            _EnvFilter=Optional[Dict[str, Any]],
+            _CustomCondition=Optional[Dict[str, Any]],
+            __base__=BaseModel
         )
-        list_type_hint = List[item_type_hint]
-        return list_type_hint, pydantic_field
+        return filter_model, Field(**field_kwargs)
 
-    elif prop_type == "string":
-        return str, pydantic_field
-    elif prop_type == "integer":
-        return int, pydantic_field
-    elif prop_type == "boolean":
-        return bool, pydantic_field
-    elif prop_type == "number":
-        return float, pydantic_field
-    elif prop_type == "null":
-        return None, pydantic_field
-    else:
-        return Any, pydantic_field
-
-
-def get_model_fields(form_model_name, properties, required_fields, schema_defs=None):
-    model_fields = {}
-
-    _model_cache: Dict[str, Type] = {}
-
-    for param_name, param_schema in properties.items():
-        is_required = param_name in required_fields
-        python_type_hint, pydantic_field_info = _process_schema_property(
-            _model_cache,
-            param_schema,
-            form_model_name,
-            param_name,
+    # Handle schema composition
+    if "allOf" in schema:
+        # Merge all schemas in allOf
+        merged_schema = {"type": "object", "properties": {}, "required": []}
+        for sub_schema in schema["allOf"]:
+            if "properties" in sub_schema:
+                merged_schema["properties"].update(sub_schema["properties"])
+            if "required" in sub_schema:
+                merged_schema["required"].extend(sub_schema["required"])
+        return _process_schema_property(
+            model_cache,
+            merged_schema,
+            model_name,
+            field_name,
             is_required,
             schema_defs,
+            _processing_refs
         )
-        # Use the generated type hint and Field info
-        model_fields[param_name] = (python_type_hint, pydantic_field_info)
-    return model_fields
 
+    if "anyOf" in schema or "oneOf" in schema:
+        # Create a union of all possible types
+        sub_schemas = schema.get("anyOf", []) or schema.get("oneOf", [])
+        types = []
+        for i, sub_schema in enumerate(sub_schemas):
+            type_info, _ = _process_schema_property(
+                model_cache,
+                sub_schema,
+                f"{model_name}_{field_name}_{i}",
+                "item",
+                True,
+                schema_defs,
+                _processing_refs
+            )
+            if type_info not in types:  # Avoid duplicate types
+                types.append(type_info)
+        return Union[tuple(types)], Field(**field_kwargs)
+
+    # Handle primitive types
+    property_type = schema.get("type")
+    if isinstance(property_type, list):
+        # Handle multiple types
+        types = []
+        for t in property_type:
+            if t == "string":
+                types.append(str)
+            elif t == "integer":
+                types.append(int)
+            elif t == "number":
+                types.append(float)
+            elif t == "boolean":
+                types.append(bool)
+            elif t == "null":
+                types.append(None)
+            elif t == "array":
+                types.append(List[Any])
+            elif t == "object":
+                types.append(Dict[str, Any])
+        return Union[tuple(types)], Field(**field_kwargs)
+
+    if property_type == "string":
+        if "minLength" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["min_length"] = schema["minLength"]
+        if "maxLength" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["max_length"] = schema["maxLength"]
+        if "pattern" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["pattern"] = schema["pattern"]
+        if "format" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["format"] = schema["format"]
+        if "enum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["enum"] = schema["enum"]
+        if "const" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["const"] = schema["const"]
+        if "default" in schema:
+            field_kwargs["default"] = schema["default"]
+        return str, Field(**field_kwargs)
+
+    elif property_type == "integer":
+        if "minimum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["minimum"] = schema["minimum"]
+        if "maximum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["maximum"] = schema["maximum"]
+        if "exclusiveMinimum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["exclusive_minimum"] = schema["exclusiveMinimum"]
+        if "exclusiveMaximum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["exclusive_maximum"] = schema["exclusiveMaximum"]
+        if "multipleOf" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["multiple_of"] = schema["multipleOf"]
+        if "default" in schema:
+            field_kwargs["default"] = schema["default"]
+        return int, Field(**field_kwargs)
+
+    elif property_type == "number":
+        if "minimum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["minimum"] = schema["minimum"]
+        if "maximum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["maximum"] = schema["maximum"]
+        if "exclusiveMinimum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["exclusive_minimum"] = schema["exclusiveMinimum"]
+        if "exclusiveMaximum" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["exclusive_maximum"] = schema["exclusiveMaximum"]
+        if "multipleOf" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["multiple_of"] = schema["multipleOf"]
+        if "default" in schema:
+            field_kwargs["default"] = schema["default"]
+        return float, Field(**field_kwargs)
+
+    elif property_type == "boolean":
+        if "default" in schema:
+            field_kwargs["default"] = schema["default"]
+        return bool, Field(**field_kwargs)
+
+    elif property_type == "null":
+        return None, Field(**field_kwargs)
+
+    elif property_type == "array":
+        if "items" in schema:
+            item_type, _ = _process_schema_property(
+                model_cache,
+                schema["items"],
+                model_name,
+                field_name,
+                True,
+                schema_defs,
+                _processing_refs
+            )
+            if "minItems" in schema:
+                field_kwargs["json_schema_extra"]["metadata"]["min_items"] = schema["minItems"]
+            if "maxItems" in schema:
+                field_kwargs["json_schema_extra"]["metadata"]["max_items"] = schema["maxItems"]
+            if "uniqueItems" in schema:
+                field_kwargs["json_schema_extra"]["metadata"]["unique_items"] = schema["uniqueItems"]
+            if "default" in schema:
+                field_kwargs["default"] = schema["default"]
+            return List[item_type], Field(**field_kwargs)
+        return List[Any], Field(**field_kwargs)
+
+    elif property_type == "object":
+        if not schema.get("properties"):
+            return Dict[str, Any], Field(**field_kwargs)
+
+        # Generate a unique model name
+        full_model_name = f"{model_name}_{field_name}_model"
+        if full_model_name in model_cache:
+            return model_cache[full_model_name], Field(**field_kwargs)
+
+        fields = {}
+        required_fields = schema.get("required", [])
+        for prop_name, prop_schema in schema["properties"].items():
+            prop_type, prop_field = _process_schema_property(
+                model_cache,
+                prop_schema,
+                model_name,
+                prop_name,
+                prop_name in required_fields,
+                schema_defs,
+                _processing_refs
+            )
+            fields[prop_name] = (prop_type, prop_field)
+
+        if "minProperties" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["min_properties"] = schema["minProperties"]
+        if "maxProperties" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["max_properties"] = schema["maxProperties"]
+        if "additionalProperties" in schema:
+            field_kwargs["json_schema_extra"]["metadata"]["additional_properties"] = schema["additionalProperties"]
+        if "default" in schema:
+            field_kwargs["default"] = schema["default"]
+
+        model = create_model(full_model_name, **fields)
+        model_cache[full_model_name] = model
+        return model, Field(**field_kwargs)
+
+    # Default to Any for unknown types
+    return Any, Field(**field_kwargs)
+
+def get_model_fields(
+        name: str,
+        properties: Dict[str, Any],
+        required: List[str],
+        schema_defs: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Tuple[Type, Field]]:
+    """Get Pydantic model fields from a schema."""
+    fields = {}
+    for prop_name, prop_schema in properties.items():
+        try:
+            type_hint, field_info = _process_schema_property(
+                _model_cache,
+                prop_schema,
+                name,
+                prop_name,
+                prop_name in required,
+                schema_defs,
+                )
+            fields[prop_name] = (type_hint, field_info)
+        except Exception as e:
+            logger.error(f"Error processing parameter {prop_name}: {str(e)}")
+            continue
+
+    return fields
 
 def get_tool_handler(
-    session,
-    endpoint_name,
-    form_model_fields,
-    response_model_fields=None,
+        session: Any,
+        endpoint_name: str,
+        form_model_fields: Dict[str, Tuple[Type, Field]],
+        response_model_fields: Optional[Dict[str, Tuple[Type, Field]]] = None,
 ):
-    if form_model_fields:
-        FormModel = create_model(f"{endpoint_name}_form_model", **form_model_fields)
-        ResponseModel = (
-            create_model(f"{endpoint_name}_response_model", **response_model_fields)
-            if response_model_fields
-            else Any
+    """Get a FastAPI endpoint handler for a tool."""
+    # Create form model with proper field definitions
+    form_model = create_model(
+        f"{endpoint_name}_form_model",
+        __base__=BaseModel,
+        **{k: (v[0], v[1]) for k, v in form_model_fields.items()}
+    )
+    form_model.model_rebuild()
+
+    # Create response model if fields are provided
+    response_model = None
+    if response_model_fields:
+        response_model = create_model(
+            f"{endpoint_name}_response_model",
+            __base__=BaseModel,
+            **{k: (v[0], v[1]) for k, v in response_model_fields.items()}
         )
+        response_model.model_rebuild()
 
-        def make_endpoint_func(
-            endpoint_name: str, FormModel, session: ClientSession
-        ):  # Parameterized endpoint
-            async def tool(form_data: FormModel) -> ResponseModel:
-                args = form_data.model_dump(exclude_none=True)
-                print(f"Calling endpoint: {endpoint_name}, with args: {args}")
-                try:
-                    result = await session.call_tool(endpoint_name, arguments=args)
+    async def handler(form_data: form_model):
+        try:
+            # Transform filters for search endpoint
+            params = form_data.dict()
+            if endpoint_name == "search":
+                if "filters" not in params or not params["filters"]:
+                    # If no filters provided, use a default filter that matches the schema
+                    params["filters"] = {
+                        "_EntityTypeFilter": {
+                            "entity_type": "dataset"
+                        }
+                    }
+                elif isinstance(params["filters"], dict):
+                    # Transform the filters into the server's expected format
+                    transformed_filters = {}
+                    for key, value in params["filters"].items():
+                        if key.startswith("_"):
+                            # Already in the correct format
+                            transformed_filters[key] = value
+                        else:
+                            # Wrap in _CustomCondition
+                            transformed_filters["_CustomCondition"] = {
+                                "field": key,
+                                "condition": "EQUALS",
+                                "values": [value]
+                            }
 
-                    if result.isError:
-                        error_message = "Unknown tool execution error"
-                        error_data = None  # Initialize error_data
-                        if result.content:
-                            if isinstance(result.content[0], types.TextContent):
-                                error_message = result.content[0].text
-                        detail = {"message": error_message}
-                        if error_data is not None:
-                            detail["data"] = error_data
-                        raise HTTPException(
-                            status_code=500,
-                            detail=detail,
-                        )
+                    # If we have multiple filters, wrap them in an _And
+                    if len(transformed_filters) > 1:
+                        params["filters"] = {
+                            "_And": {
+                                "and": [{"_CustomCondition": v} if k == "_CustomCondition" else {k: v}
+                                        for k, v in transformed_filters.items()]
+                            }
+                        }
+                    else:
+                        params["filters"] = transformed_filters
 
-                    response_data = process_tool_response(result)
-                    final_response = (
-                        response_data[0] if len(response_data) == 1 else response_data
-                    )
-                    return final_response
+            logger.debug(f"Executing tool {endpoint_name} with params: {params}")
+            result = await session.execute_tool(endpoint_name, params)
+            logger.debug(f"Tool {endpoint_name} result type: {type(result)}")
+            logger.debug(f"Tool {endpoint_name} result: {result}")
 
-                except McpError as e:
-                    print(f"MCP Error calling {endpoint_name}: {e.error}")
-                    status_code = MCP_ERROR_TO_HTTP_STATUS.get(e.error.code, 500)
-                    raise HTTPException(
-                        status_code=status_code,
-                        detail=(
-                            {"message": e.error.message, "data": e.error.data}
-                            if e.error.data is not None
-                            else {"message": e.error.message}
-                        ),
-                    )
-                except Exception as e:
-                    print(f"Unexpected error calling {endpoint_name}: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail={"message": "Unexpected error", "error": str(e)},
-                    )
+            if isinstance(result, CallToolResult):
+                logger.debug(f"CallToolResult fields: {result.model_fields}")
+                logger.debug(f"CallToolResult isError: {getattr(result, 'isError', None)}")
+                logger.debug(f"CallToolResult content: {getattr(result, 'content', None)}")
+                logger.debug(f"CallToolResult meta: {getattr(result, 'meta', None)}")
 
-            return tool
+                if result.isError:
+                    raise HTTPException(status_code=400, detail="Tool execution failed")
+                # Return the raw result for now, let the tool handle its own response format
+                return result
+            return result
+        except Exception as e:
+            logger.error(f"Error executing tool {endpoint_name}: {str(e)}", exc_info=True)
+            raise
 
-        tool_handler = make_endpoint_func(endpoint_name, FormModel, session)
-    else:
+    handler.__name__ = endpoint_name
+    return handler
 
-        def make_endpoint_func_no_args(
-            endpoint_name: str, session: ClientSession
-        ):  # Parameterless endpoint
-            async def tool():  # No parameters
-                print(f"Calling endpoint: {endpoint_name}, with no args")
-                try:
-                    result = await session.call_tool(
-                        endpoint_name, arguments={}
-                    )  # Empty dict
+async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Any:
+    """Execute a tool with the given parameters."""
+    try:
+        logger.debug(f"Calling tool {tool_name} with params: {params}")
+        result = await self.call_tool(tool_name, params)
+        logger.debug(f"Tool {tool_name} call result type: {type(result)}")
+        logger.debug(f"Tool {tool_name} call result: {result}")
 
-                    if result.isError:
-                        error_message = "Unknown tool execution error"
-                        if result.content:
-                            if isinstance(result.content[0], types.TextContent):
-                                error_message = result.content[0].text
-                        detail = {"message": error_message}
-                        raise HTTPException(
-                            status_code=500,
-                            detail=detail,
-                        )
+        if isinstance(result, CallToolResult):
+            logger.debug(f"CallToolResult fields: {result.model_fields}")
+            logger.debug(f"CallToolResult isError: {getattr(result, 'isError', None)}")
+            logger.debug(f"CallToolResult content: {getattr(result, 'content', None)}")
+            logger.debug(f"CallToolResult meta: {getattr(result, 'meta', None)}")
+            # Return the result directly if it's a CallToolResult
+            return result
+        return result
+    except McpError as e:
+        status_code = MCP_ERROR_TO_HTTP_STATUS.get(e.code, 500)
+        raise HTTPException(status_code=status_code, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error executing tool {tool_name}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
-                    response_data = process_tool_response(result)
-                    final_response = (
-                        response_data[0] if len(response_data) == 1 else response_data
-                    )
-                    return final_response
-
-                except McpError as e:
-                    print(f"MCP Error calling {endpoint_name}: {e.error}")
-                    status_code = MCP_ERROR_TO_HTTP_STATUS.get(e.error.code, 500)
-                    # Propagate the error received from MCP as an HTTP exception
-                    raise HTTPException(
-                        status_code=status_code,
-                        detail=(
-                            {"message": e.error.message, "data": e.error.data}
-                            if e.error.data is not None
-                            else {"message": e.error.message}
-                        ),
-                    )
-                except Exception as e:
-                    print(f"Unexpected error calling {endpoint_name}: {e}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail={"message": "Unexpected error", "error": str(e)},
-                    )
-
-            return tool
-
-        tool_handler = make_endpoint_func_no_args(endpoint_name, session)
-
-    return tool_handler
+# Monkey patch the ClientSession class to add the execute_tool method
+ClientSession.execute_tool = execute_tool
