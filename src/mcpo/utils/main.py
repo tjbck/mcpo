@@ -224,22 +224,15 @@ def _process_schema_property(
 
     # Handle special filter types
     if field_name == "filters":
-        # Create a model that matches the server's expected filter structure
-        filter_model = create_model(
-            "FilterModel",
-            _And=Optional[Dict[str, Any]],
-            _Or=Optional[Dict[str, Any]],
-            _Not=Optional[Dict[str, Any]],
-            _EntityTypeFilter=Optional[Dict[str, Any]],
-            _EntitySubtypeFilter=Optional[Dict[str, Any]],
-            _StatusFilter=Optional[Dict[str, Any]],
-            _PlatformFilter=Optional[Dict[str, Any]],
-            _DomainFilter=Optional[Dict[str, Any]],
-            _EnvFilter=Optional[Dict[str, Any]],
-            _CustomCondition=Optional[Dict[str, Any]],
+        # Match GraphQL: orFilters: [AndFilterInput!]
+        AndFilterInput = create_model(
+            "AndFilterInput",
+            field=(str, ...),
+            condition=(str, ...),
+            values=(List[str], ...),
             __base__=BaseModel
         )
-        return filter_model, Field(**field_kwargs)
+        return List[AndFilterInput], Field(**field_kwargs)
 
     # Handle schema composition
     if "allOf" in schema:
@@ -470,39 +463,6 @@ def get_tool_handler(
         try:
             # Transform filters for search endpoint
             params = form_data.dict()
-            if endpoint_name == "search":
-                if "filters" not in params or not params["filters"]:
-                    # If no filters provided, use a default filter that matches the schema
-                    params["filters"] = {
-                        "_EntityTypeFilter": {
-                            "entity_type": "dataset"
-                        }
-                    }
-                elif isinstance(params["filters"], dict):
-                    # Transform the filters into the server's expected format
-                    transformed_filters = {}
-                    for key, value in params["filters"].items():
-                        if key.startswith("_"):
-                            # Already in the correct format
-                            transformed_filters[key] = value
-                        else:
-                            # Wrap in _CustomCondition
-                            transformed_filters["_CustomCondition"] = {
-                                "field": key,
-                                "condition": "EQUALS",
-                                "values": [value]
-                            }
-
-                    # If we have multiple filters, wrap them in an _And
-                    if len(transformed_filters) > 1:
-                        params["filters"] = {
-                            "_And": {
-                                "and": [{"_CustomCondition": v} if k == "_CustomCondition" else {k: v}
-                                        for k, v in transformed_filters.items()]
-                            }
-                        }
-                    else:
-                        params["filters"] = transformed_filters
 
             logger.debug(f"Executing tool {endpoint_name} with params: {params}")
             result = await session.execute_tool(endpoint_name, params)
