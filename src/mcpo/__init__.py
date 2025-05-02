@@ -61,6 +61,12 @@ def main(
     path_prefix: Annotated[
         Optional[str], typer.Option("--path-prefix", help="URL prefix")
     ] = None,
+    tools_timeout: Annotated[
+        Optional[int], typer.Option("--tools-timeout", help="Timeout for waiting tools")
+    ] = 15,
+    tools_interval: Annotated[
+        Optional[int], typer.Option("--tools-interval", help="Polling interval for tools")
+    ] = 1,
 ):
     server_command = None
     if not config_path:
@@ -131,6 +137,8 @@ def main(
             ssl_certfile=ssl_certfile,
             ssl_keyfile=ssl_keyfile,
             path_prefix=path_prefix,
+            tools_timeout=tools_timeout,
+            tools_interval=tools_interval,
         )
     )
 
