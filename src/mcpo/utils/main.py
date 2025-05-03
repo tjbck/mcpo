@@ -351,6 +351,8 @@ def get_tool_handler(
                 # Return the raw result for now, let the tool handle its own response format
                 return result
             return result
+        except HTTPException:
+            raise  # Let FastAPI handle HTTPException properly       
         except Exception as e:
             logger.error(f"Error executing tool {endpoint_name}: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
