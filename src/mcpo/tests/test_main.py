@@ -2,10 +2,10 @@ import pytest
 from pydantic import BaseModel, Field
 from typing import Any, List, Dict, Union
 
-from mcpo.utils.main import _process_schema_property
+from mcpo.utils.main import _process_schema_property, ModelCache
 
 
-_model_cache = {}
+_model_cache = ModelCache()
 
 
 @pytest.fixture(autouse=True)
@@ -234,7 +234,7 @@ def test_model_caching():
         _model_cache, schema, "cache_test", "obj1", True
     )
     assert result_type3 == result_type1  # Should be the same cached object
-    assert len(_model_cache) == 2  # Only two unique models created
+    assert _model_cache.len() == 2  # Only two unique models created
 
 
 def test_multi_type_property_with_list():

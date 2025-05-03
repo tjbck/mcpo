@@ -3,7 +3,9 @@ from typing import Any, Dict, List, Union
 from pydantic import BaseModel, Field
 from pydantic.fields import FieldInfo
 
-from mcpo.utils.main import _process_schema_property, _model_cache
+from mcpo.utils.main import _process_schema_property, ModelCache
+
+_model_cache = ModelCache()
 
 @pytest.fixture(autouse=True)
 def clear_model_cache():

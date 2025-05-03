@@ -2,14 +2,6 @@ import json
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Optional, Dict, Any
-import logging
-
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 import uvicorn
 from fastapi import Depends, FastAPI
@@ -19,6 +11,8 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from starlette.routing import Mount
 
+from mcpo.utils import PatchedClientSession
+from mcpo.utils.common_logging import logger
 from mcpo.utils.main import get_model_fields, get_tool_handler
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
@@ -56,6 +50,8 @@ def get_schema_defs(schema: Any) -> Dict[str, Any]:
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     session: ClientSession = app.state.session
+    if not session:
+        raise ValueError("Session is not initialized in the app state.")
 
     try:
         result = await session.initialize()
@@ -112,7 +108,7 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
                         schema_defs,
                     )
 
-                tool_handler = get_tool_handler(
+                tool_handler, response_model = get_tool_handler(
                     session,
                     endpoint_name,
                     form_model_fields,
@@ -123,6 +119,7 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
                     f"/{endpoint_name}",
                     summary=endpoint_name.replace("_", " ").title(),
                     description=endpoint_description,
+                    response_model=response_model,
                     response_model_exclude_none=True,
                     dependencies=[Depends(api_dependency)] if api_dependency else [],
                 )(tool_handler)
@@ -145,7 +142,7 @@ async def lifespan(app: FastAPI):
     api_dependency = getattr(app.state, "api_dependency", None)
 
     if (server_type == "stdio" and not command) or (
-            server_type == "sse" and not args[0]
+        server_type == "sse" and not args[0]
     ):
         # Main app lifespan (when config_path is provided)
         async with AsyncExitStack() as stack:
@@ -164,7 +161,7 @@ async def lifespan(app: FastAPI):
             )
 
             async with stdio_client(server_params) as (reader, writer):
-                async with ClientSession(reader, writer) as session:
+                async with PatchedClientSession(reader, writer) as session:
                     app.state.session = session
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
                     yield
@@ -173,7 +170,7 @@ async def lifespan(app: FastAPI):
                 reader,
                 writer,
             ):
-                async with ClientSession(reader, writer) as session:
+                async with PatchedClientSession(reader, writer) as session:
                     app.state.session = session
                     await create_dynamic_endpoints(app, api_dependency=api_dependency)
                     yield
@@ -200,7 +197,7 @@ async def run(
     # mcpo server
     name = kwargs.get("name") or "MCP OpenAPI Proxy"
     description = (
-            kwargs.get("description") or "Automatically generated API from MCP Tool Schemas"
+        kwargs.get("description") or "Automatically generated API from MCP Tool Schemas"
     )
     version = kwargs.get("version") or "1.0"
 

@@ -1,10 +1,11 @@
-import json
-from typing import Dict, Any, List, Optional, Union
+from typing import List, Union
+
 import pytest
-from pydantic import BaseModel, Field
+from mcpo.utils.main import _process_schema_property, get_model_fields, ModelCache
+from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from mcpo.utils.main import _process_schema_property, get_model_fields, _model_cache
+_model_cache = ModelCache()
 
 @pytest.fixture(autouse=True)
 def clear_model_cache():
