@@ -54,8 +54,9 @@ def _process_schema_property(
     model_name_prefix: str,
     prop_name: str,
     is_required: bool,
-    schema_defs: Optional[Dict] = None,
-) -> tuple[Union[Type, List, ForwardRef, Any], FieldInfo]:
+    schema_defs: Optional[Dict[str, Any]] = None,
+    root_schema: Optional[Dict[str, Any]] = None,
+) -> tuple[Union[Type, List[Any], ForwardRef, Any], FieldInfo]:
     """
     Recursively processes a schema property to determine its Python type hint
     and Pydantic Field definition.
@@ -64,11 +65,34 @@ def _process_schema_property(
         A tuple containing (python_type_hint, pydantic_field).
         The pydantic_field contains default value and description.
     """
+    original_schema = prop_schema.copy()
     if "$ref" in prop_schema:
         ref = prop_schema["$ref"]
-        ref = ref.split("/")[-1]
-        assert ref in schema_defs, "Custom field not found"
-        prop_schema = schema_defs[ref]
+        ref_parts = ref.split("/")[1:]  # Skip the '#' at the start
+
+        # Start from the root schema
+        current: Optional[Dict[str, Any]] = None
+        if ref_parts[0] in ["definitions", "$defs"] and schema_defs is not None:
+            current = schema_defs
+        elif ref_parts[0] == "properties" and root_schema is not None:
+            current = root_schema.get("properties", {})
+
+        if current is None:
+            raise ValueError(f"Cannot resolve reference: {ref}")
+
+        # Navigate through the reference path
+        for part in ref_parts[1:]:  # Skip the first part since we already used it
+            if not isinstance(current, dict):
+                raise ValueError(f"Invalid reference path: {ref}")
+            current = current.get(part)
+            if current is None:
+                raise ValueError(f"Reference not found: {ref}")
+
+        # Merge referenced schema while preserving local overrides
+        prop_schema = {
+            **current,
+            **{k: v for k, v in original_schema.items() if k != "$ref"},
+        }
 
     prop_type = prop_schema.get("type")
     prop_desc = prop_schema.get("description", "")
@@ -87,6 +111,8 @@ def _process_schema_property(
                 f"{model_name_prefix}_{prop_name}",
                 f"choice_{i}",
                 False,
+                schema_defs=schema_defs,
+                root_schema=root_schema,
             )
             type_hints.append(type_hint)
         return Union[tuple(type_hints)], pydantic_field
@@ -100,7 +126,13 @@ def _process_schema_property(
             temp_schema = dict(prop_schema)
             temp_schema["type"] = type_option
             type_hint, _ = _process_schema_property(
-                _model_cache, temp_schema, model_name_prefix, prop_name, False
+                _model_cache,
+                temp_schema,
+                model_name_prefix,
+                prop_name,
+                False,
+                schema_defs=schema_defs,
+                root_schema=root_schema,
             )
             type_hints.append(type_hint)
 
@@ -127,7 +159,8 @@ def _process_schema_property(
                 nested_model_name,
                 name,
                 is_nested_required,
-                schema_defs,
+                schema_defs=schema_defs,
+                root_schema=root_schema,
             )
 
             nested_fields[name] = (nested_type_hint, nested_pydantic_field)
@@ -153,7 +186,8 @@ def _process_schema_property(
             f"{model_name_prefix}_{prop_name}",
             "item",
             False,  # Items aren't required at this level,
-            schema_defs,
+            schema_defs=schema_defs,
+            root_schema=root_schema,
         )
         list_type_hint = List[item_type_hint]
         return list_type_hint, pydantic_field
@@ -172,7 +206,13 @@ def _process_schema_property(
         return Any, pydantic_field
 
 
-def get_model_fields(form_model_name, properties, required_fields, schema_defs=None):
+def get_model_fields(
+    form_model_name: str,
+    properties: Dict[str, Any],
+    required_fields: List[str],
+    schema_defs: Optional[Dict[str, Any]] = None,
+    root_schema: Optional[Dict[str, Any]] = None,
+) -> Dict[str, tuple[Union[Type, List[Any], ForwardRef, Any], FieldInfo]]:
     model_fields = {}
 
     _model_cache: Dict[str, Type] = {}
@@ -185,7 +225,8 @@ def get_model_fields(form_model_name, properties, required_fields, schema_defs=N
             form_model_name,
             param_name,
             is_required,
-            schema_defs,
+            schema_defs=schema_defs,
+            root_schema=root_schema,
         )
         # Use the generated type hint and Field info
         model_fields[param_name] = (python_type_hint, pydantic_field_info)
