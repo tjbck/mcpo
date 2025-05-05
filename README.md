@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/open-webui-mcpo-badge.png)](https://mseep.ai/app/open-webui-mcpo)
+
 # ⚡️ mcpo
 
 Expose any MCP tool as an OpenAPI-compatible HTTP server—instantly.
