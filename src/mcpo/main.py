@@ -16,13 +16,18 @@ from mcpo.utils.main import get_model_fields, get_tool_handler
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
 
+def get_optional_attr(obj: any, attr: str) -> Optional[any]:
+    """Helper function to get an optional attribute from an object consistently"""
+    return getattr(obj, attr, None)
+
+
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     session: ClientSession = app.state.session
     if not session:
         raise ValueError("Session is not initialized in the app state.")
 
     result = await session.initialize()
-    server_info = getattr(result, "serverInfo", None)
+    server_info = get_optional_attr(result, "serverInfo")
     if server_info:
         app.title = server_info.name or app.title
         app.description = (
@@ -36,9 +41,8 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     for tool in tools:
         endpoint_name = tool.name
         endpoint_description = tool.description
-
         inputSchema = tool.inputSchema
-        outputSchema = getattr(tool, "outputSchema", None)
+        outputSchema = get_optional_attr(tool, "outputSchema")
 
         form_model_fields = get_model_fields(
             f"{endpoint_name}_form_model",
