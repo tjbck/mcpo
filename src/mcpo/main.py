@@ -16,6 +16,17 @@ from mcpo.utils.main import get_model_fields, get_tool_handler
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
 
+def setup_cors_middleware(app: FastAPI, cors_allow_origins: list[str] = None):
+    """Helper function to setup CORS middleware with consistent configuration"""
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_allow_origins or ["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     session: ClientSession = app.state.session
     if not session:
@@ -154,13 +165,7 @@ async def run(
         lifespan=lifespan,
     )
 
-    main_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_allow_origins or ["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    setup_cors_middleware(main_app, cors_allow_origins)
 
     # Add middleware to protect also documentation and spec
     if api_key and strict_auth:
@@ -195,13 +200,7 @@ async def run(
                 lifespan=lifespan,
             )
 
-            sub_app.add_middleware(
-                CORSMiddleware,
-                allow_origins=cors_allow_origins or ["*"],
-                allow_credentials=True,
-                allow_methods=["*"],
-                allow_headers=["*"],
-            )
+            setup_cors_middleware(sub_app, cors_allow_origins)
 
             if server_cfg.get("command"):
                 # stdio
