@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - 🔄 Refactored CORS middleware setup into a reusable function to reduce code duplication and improve maintainability
+- 🎯 Added `get_optional_attr` helper function to standardize optional attribute access throughout the codebase
 
 ## [0.0.13] - 2025-05-01
 
