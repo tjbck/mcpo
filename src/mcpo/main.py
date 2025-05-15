@@ -17,11 +17,16 @@ from starlette.routing import Mount
 logger = logging.getLogger(__name__)
 
 
-from mcpo.utils.main import get_model_fields, get_tool_handler
+from mcpo.utils.main import get_model_fields, get_tool_handler, wait_list_tools
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
 
-async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
+async def create_dynamic_endpoints(
+    app: FastAPI,
+    api_dependency=None,
+    tools_timeout: int = 15,
+    tools_interval: int = 1,
+):
     session: ClientSession = app.state.session
     if not session:
         raise ValueError("Session is not initialized in the app state.")
@@ -35,7 +40,11 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
         )
         app.version = server_info.version or app.version
 
-    tools_result = await session.list_tools()
+    try:
+        tools_result = await wait_list_tools(session, timeout=tools_timeout, interval=tools_interval)
+    except Exception as e:
+        raise RuntimeError(f"Failed to retrieve tools from MCP server: {e}")
+
     tools = tools_result.tools
 
     for tool in tools:
@@ -86,6 +95,8 @@ async def lifespan(app: FastAPI):
 
     args = args if isinstance(args, list) else [args]
     api_dependency = getattr(app.state, "api_dependency", None)
+    tools_timeout = getattr(app.state, "tools_timeout", 5)
+    tools_interval = getattr(app.state, "tools_interval", 1)
 
     if (server_type == "stdio" and not command) or (
         server_type == "sse" and not args[0]
@@ -109,7 +120,12 @@ async def lifespan(app: FastAPI):
             async with stdio_client(server_params) as (reader, writer):
                 async with ClientSession(reader, writer) as session:
                     app.state.session = session
-                    await create_dynamic_endpoints(app, api_dependency=api_dependency)
+                    await create_dynamic_endpoints(
+                        app,
+                        api_dependency=api_dependency,
+                        tools_timeout=tools_timeout,
+                        tools_interval=tools_interval,
+                    )
                     yield
         if server_type == "sse":
             async with sse_client(url=args[0], sse_read_timeout=None) as (
@@ -118,7 +134,12 @@ async def lifespan(app: FastAPI):
             ):
                 async with ClientSession(reader, writer) as session:
                     app.state.session = session
-                    await create_dynamic_endpoints(app, api_dependency=api_dependency)
+                    await create_dynamic_endpoints(
+                        app,
+                        api_dependency=api_dependency,
+                        tools_timeout=tools_timeout,
+                        tools_interval=tools_interval,
+                    )
                     yield
         if server_type == "streamablehttp" or server_type == "streamable_http":
             # Ensure URL has trailing slash to avoid redirects
@@ -157,6 +178,10 @@ async def run(
 
     # MCP Config
     config_path = kwargs.get("config_path")
+
+    # MCP Tool
+    tools_timeout = kwargs.get("tools_timeout", 15)
+    tools_interval = kwargs.get("tools_interval", 1)
 
     # mcpo server
     name = kwargs.get("name") or "MCP OpenAPI Proxy"
@@ -203,6 +228,8 @@ async def run(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    main_app.state.tools_timeout = tools_timeout
+    main_app.state.tools_interval = tools_interval
 
     # Add middleware to protect also documentation and spec
     if api_key and strict_auth:
@@ -290,6 +317,8 @@ async def run(
                 allow_methods=["*"],
                 allow_headers=["*"],
             )
+            sub_app.state.tools_timeout = tools_timeout
+            sub_app.state.tools_interval = tools_interval
 
             if server_cfg.get("command"):
                 # stdio
