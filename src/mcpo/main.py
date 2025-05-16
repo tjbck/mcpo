@@ -35,6 +35,10 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
         )
         app.version = server_info.version or app.version
 
+    instructions = getattr(result, "instructions", None)
+    if instructions:
+        app.description = instructions
+
     tools_result = await session.list_tools()
     tools = tools_result.tools
 
