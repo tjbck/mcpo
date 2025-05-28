@@ -2,6 +2,7 @@ import json
 import os
 import logging
 import socket
+import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Optional
 
@@ -341,4 +342,9 @@ async def run(
     )
     server = uvicorn.Server(config)
 
-    await server.serve()
+    try:
+        await server.serve()
+    except asyncio.CancelledError:
+        server.should_exit = True
+        await server.shutdown()
+        raise 
