@@ -33,7 +33,7 @@ We recommend using uv for lightning-fast startup and zero config.
 uvx mcpo --port 8000 --api-key "top-secret" -- your_mcp_server_command
 ```
 
-Or, if you’re using Python:
+Or, if you're using Python:
 
 ```bash
 pip install mcpo
@@ -52,19 +52,40 @@ To use a Streamable HTTP-compatible MCP server, specify the server type and endp
 mcpo --port 8000 --api-key "top-secret" --server-type "streamable_http" -- http://127.0.0.1:8002/mcp
 ```
 
+### 🚀 Multi-Worker Support for High Performance
+
+For production deployments or high-traffic scenarios, mcpo supports multi-worker mode to maximize performance on multi-core systems:
+
+```bash
+# Run with multiple workers for better performance
+mcpo --port 8000 --workers 8 --api-key "top-secret" -- your_mcp_server_command
+
+# Auto-scale based on CPU cores (recommended for production)
+mcpo --port 8000 --workers $(nproc) --api-key "top-secret" -- your_mcp_server_command
+```
+
+**Worker Configuration Guidelines:**
+- **Single worker (default)**: Best for development and debugging
+- **Multiple workers**: Recommended for production to handle concurrent requests
+- **Optimal count**: Usually `CPU cores × 2`, but test what works best for your workload
+- **Maximum recommended**: 32 workers
+
 You can also run mcpo via Docker with no installation:
 
 ```bash
 docker run -p 8000:8000 ghcr.io/open-webui/mcpo:main --api-key "top-secret" -- your_mcp_server_command
+
+# With multiple workers
+docker run -p 8000:8000 ghcr.io/open-webui/mcpo:main --workers 4 --api-key "top-secret" -- your_mcp_server_command
 ```
 
 Example:
 
 ```bash
-uvx mcpo --port 8000 --api-key "top-secret" -- uvx mcp-server-time --local-timezone=America/New_York
+uvx mcpo --port 8000 --workers 4 --api-key "top-secret" -- uvx mcp-server-time --local-timezone=America/New_York
 ```
 
-That’s it. Your MCP tool is now available at http://localhost:8000 with a generated OpenAPI schema — test it live at [http://localhost:8000/docs](http://localhost:8000/docs).
+That's it. Your MCP tool is now available at http://localhost:8000 with a generated OpenAPI schema — test it live at [http://localhost:8000/docs](http://localhost:8000/docs).
 
 🤝 **To integrate with Open WebUI after launching the server, check our [docs](https://docs.openwebui.com/openapi-servers/open-webui/).**
 
@@ -76,6 +97,9 @@ Start via:
 
 ```bash
 mcpo --config /path/to/config.json
+
+# With multiple workers for better performance
+mcpo --config /path/to/config.json --workers 8
 ```
 
 Example config.json:
@@ -149,9 +173,18 @@ To contribute or run tests locally:
 
     # Example with a test MCP server (like mcp-server-time):
     # uv run mcpo --port 8000 -- uvx mcp-server-time --local-timezone=America/New_York
+
+    # Test with multiple workers for performance testing
+    # uv run mcpo --port 8000 --workers 4 -- uvx mcp-server-time --local-timezone=America/New_York
     ```
     This allows you to test your changes interactively before committing or creating a pull request. Access your locally running `mcpo` instance at `http://localhost:8000` and the auto-generated docs at `http://localhost:8000/docs`.
 
+## 📊 Performance Tips
+
+- **Development**: Use single worker (`--workers 1`) for easier debugging
+- **Production**: Use multiple workers (`--workers 4-16`) based on your CPU cores
+- **High traffic**: Monitor CPU usage and adjust worker count accordingly
+- **Docker**: Set worker count based on container CPU allocation
 
 ## 🪪 License
 
@@ -170,7 +203,7 @@ Getting started is easy:
 - Make your changes
 - Open a pull request
 
-Not sure where to start? Feel free to open an issue or ask a question—we’re happy to help you find a good first task.
+Not sure where to start? Feel free to open an issue or ask a question—we're happy to help you find a good first task.
 
 ## ✨ Star History
 

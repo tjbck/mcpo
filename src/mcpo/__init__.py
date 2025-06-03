@@ -18,6 +18,10 @@ def main(
     port: Annotated[
         Optional[int], typer.Option("--port", "-p", help="Port number")
     ] = 8000,
+    workers: Annotated[
+        Optional[int],
+        typer.Option("--workers", "-w", help="Number of worker processes"),
+    ] = 1,
     cors_allow_origins: Annotated[
         Optional[List[str]],
         typer.Option("--cors-allow-origins", help="CORS allowed origins"),
@@ -28,7 +32,9 @@ def main(
     ] = None,
     strict_auth: Annotated[
         Optional[bool],
-        typer.Option("--strict-auth", help="API key protects all endpoints and documentation"),
+        typer.Option(
+            "--strict-auth", help="API key protects all endpoints and documentation"
+        ),
     ] = False,
     env: Annotated[
         Optional[List[str]], typer.Option("--env", "-e", help="Environment variables")
@@ -76,6 +82,9 @@ def main(
             typer.echo("Error: You must specify the MCP server command after '--'")
             return
 
+    # 从环境变量获取 workers 数量
+    workers = int(os.getenv("WORKERS", workers))
+
     from mcpo.main import run
 
     if config_path:
@@ -84,6 +93,8 @@ def main(
         print(
             f"Starting MCP OpenAPI Proxy on {host}:{port} with command: {' '.join(server_command)}"
         )
+
+    print(f"Using {workers} worker(s)")
 
     try:
         env_dict = {}
@@ -119,6 +130,7 @@ def main(
         run(
             host,
             port,
+            workers=workers,
             api_key=api_key,
             strict_auth=strict_auth,
             cors_allow_origins=cors_allow_origins,

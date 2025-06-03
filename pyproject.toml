@@ -1,7 +1,7 @@
 [project]
 name = "mcpo"
-version = "0.0.14"
-description = "A simple, secure MCP-to-OpenAPI proxy server"
+version = "0.0.15"
+description = "A simple, secure MCP-to-OpenAPI proxy server with multi-worker support"
 authors = [
     { name = "Timothy Jaeryang Baek", email = "tim@openwebui.com" }
 ]
@@ -17,8 +17,9 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "python-dotenv>=1.1.0",
     "typer>=0.15.2",
-    "uvicorn>=0.34.0",
+    "uvicorn>=0.34.0"
 ]
+
 
 [project.scripts]
 mcpo = "mcpo:app"
@@ -29,5 +30,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "black>=25.1.0",
+    "flake8>=7.2.0",
     "pytest>=8.3.5",
+    "pytest-asyncio>=0.21.0"
 ]

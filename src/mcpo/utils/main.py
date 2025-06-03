@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any, Dict, ForwardRef, List, Optional, Type, Union
 
 from fastapi import HTTPException
@@ -198,6 +199,8 @@ def get_tool_handler(
     form_model_fields,
     response_model_fields=None,
 ):
+    worker_id = os.getpid()
+
     if form_model_fields:
         FormModel = create_model(f"{endpoint_name}_form_model", **form_model_fields)
         ResponseModel = (
@@ -211,7 +214,9 @@ def get_tool_handler(
         ):  # Parameterized endpoint
             async def tool(form_data: FormModel) -> ResponseModel:
                 args = form_data.model_dump(exclude_none=True)
-                print(f"Calling endpoint: {endpoint_name}, with args: {args}")
+                print(
+                    f"[Worker {worker_id}] Calling endpoint: {endpoint_name}, with args: {args}"
+                )
                 try:
                     result = await session.call_tool(endpoint_name, arguments=args)
 
@@ -236,7 +241,9 @@ def get_tool_handler(
                     return final_response
 
                 except McpError as e:
-                    print(f"MCP Error calling {endpoint_name}: {e.error}")
+                    print(
+                        f"[Worker {worker_id}] MCP Error calling {endpoint_name}: {e.error}"
+                    )
                     status_code = MCP_ERROR_TO_HTTP_STATUS.get(e.error.code, 500)
                     raise HTTPException(
                         status_code=status_code,
@@ -247,7 +254,9 @@ def get_tool_handler(
                         ),
                     )
                 except Exception as e:
-                    print(f"Unexpected error calling {endpoint_name}: {e}")
+                    print(
+                        f"[Worker {worker_id}] Unexpected error calling {endpoint_name}: {e}"
+                    )
                     raise HTTPException(
                         status_code=500,
                         detail={"message": "Unexpected error", "error": str(e)},
@@ -262,7 +271,9 @@ def get_tool_handler(
             endpoint_name: str, session: ClientSession
         ):  # Parameterless endpoint
             async def tool():  # No parameters
-                print(f"Calling endpoint: {endpoint_name}, with no args")
+                print(
+                    f"[Worker {worker_id}] Calling endpoint: {endpoint_name}, with no args"
+                )
                 try:
                     result = await session.call_tool(
                         endpoint_name, arguments={}
@@ -286,7 +297,9 @@ def get_tool_handler(
                     return final_response
 
                 except McpError as e:
-                    print(f"MCP Error calling {endpoint_name}: {e.error}")
+                    print(
+                        f"[Worker {worker_id}] MCP Error calling {endpoint_name}: {e.error}"
+                    )
                     status_code = MCP_ERROR_TO_HTTP_STATUS.get(e.error.code, 500)
                     # Propagate the error received from MCP as an HTTP exception
                     raise HTTPException(
@@ -298,7 +311,9 @@ def get_tool_handler(
                         ),
                     )
                 except Exception as e:
-                    print(f"Unexpected error calling {endpoint_name}: {e}")
+                    print(
+                        f"[Worker {worker_id}] Unexpected error calling {endpoint_name}: {e}"
+                    )
                     raise HTTPException(
                         status_code=500,
                         detail={"message": "Unexpected error", "error": str(e)},
