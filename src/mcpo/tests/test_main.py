@@ -1,11 +1,11 @@
 import pytest
 from pydantic import BaseModel, Field
-from typing import Any, List, Dict, Union
+from typing import Any, List, Dict, Type, Union
 
 from mcpo.utils.main import _process_schema_property
 
 
-_model_cache = {}
+_model_cache: Dict[str, Type] = {}
 
 
 @pytest.fixture(autouse=True)
@@ -310,3 +310,96 @@ def test_multi_type_property_with_any_of():
 
     # assert result_field parameter config
     assert result_field.description == "A property with multiple types"
+
+
+def test_process_property_reference():
+    schema = {
+        "type": "object",
+        "properties": {
+            "start_time": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Start time in ISO 8601 format",
+            },
+            "end_time": {
+                "$ref": "#/properties/start_time",
+                "description": "End time in ISO 8601 format",
+            },
+        },
+        "required": ["start_time"],
+    }
+
+    # First process the start_time property to ensure reference target exists
+    result_type, result_field = _process_schema_property(
+        _model_cache,
+        schema,
+        "test",
+        "prop",
+        True,
+        schema_defs=None,
+        root_schema=schema,
+    )
+
+    assert issubclass(result_type, BaseModel)
+    model_fields = result_type.model_fields
+
+    # Check that both fields have the same type (string)
+    assert model_fields["start_time"].annotation is str
+    assert model_fields["end_time"].annotation is str
+
+    # Check descriptions are preserved
+    assert model_fields["start_time"].description == "Start time in ISO 8601 format"
+    assert model_fields["end_time"].description == "End time in ISO 8601 format"
+
+
+def test_process_invalid_property_reference():
+    schema = {
+        "type": "object",
+        "properties": {"invalid_ref": {"$ref": "#/properties/nonexistent"}},
+    }
+
+    with pytest.raises(
+        ValueError, match="Reference not found: #/properties/nonexistent"
+    ):
+        _process_schema_property(
+            _model_cache,
+            schema,
+            "test",
+            "prop",
+            True,
+            schema_defs=None,
+            root_schema=schema,
+        )
+
+
+def test_process_nested_property_reference():
+    schema = {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "updated_at": {"$ref": "#/properties/user/properties/created_at"},
+                },
+            }
+        },
+    }
+
+    result_type, _ = _process_schema_property(
+        _model_cache,
+        schema,
+        "test",
+        "prop",
+        True,
+        schema_defs=None,
+        root_schema=schema,
+    )
+
+    assert issubclass(result_type, BaseModel)
+    user_field = result_type.model_fields["user"]
+    user_model = user_field.annotation
+
+    # Both timestamps should be strings
+    assert user_model.model_fields["created_at"].annotation is str
+    assert user_model.model_fields["updated_at"].annotation is str
