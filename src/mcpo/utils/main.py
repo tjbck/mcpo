@@ -93,6 +93,19 @@ def _process_schema_property(
     """
     if "$ref" in prop_schema:
         ref = prop_schema["$ref"]
+        if ref.startswith("#/properties/"):
+            # Remove common prefix in pathes.
+            prefix_path = model_name_prefix.split("_form_model_")[-1]
+            ref_path = ref.split("#/properties/")[-1]
+            # Translate $ref path to model_name_prefix style.
+            ref_path = ref_path.replace("/properties/", "_model_")
+            ref_path = ref_path.replace("/items", "_item")
+            # If $ref path is a prefix substring of model_name_prefix path,
+            # there exists a circular reference.
+            # The loop should be broke with a return to avoid exception.
+            if prefix_path.startswith(ref_path):
+                # TODO: Find the exact type hint for the $ref.
+                return Any, Field(default=None, description="")
         ref = ref.split("/")[-1]
         assert ref in schema_defs, "Custom field not found"
         prop_schema = schema_defs[ref]
