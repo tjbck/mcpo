@@ -214,7 +214,7 @@ async def run(
         allow_headers=["*"],
     )
 
-    main_app.state.disable_argument_logging = kwargs.get("disable_argument_logging")
+    main_app.state.disable_argument_logging = kwargs.get("disable_argument_logging", False)
 
     # Add middleware to protect also documentation and spec
     if api_key and strict_auth:
