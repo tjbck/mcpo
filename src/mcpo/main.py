@@ -70,7 +70,7 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
             endpoint_name,
             form_model_fields,
             response_model_fields,
-            disable_argument_logging
+            getattr(app.state, "disable_argument_logging", False)
         )
 
         app.post(
@@ -178,7 +178,6 @@ async def run(
     ssl_certfile = kwargs.get("ssl_certfile")
     ssl_keyfile = kwargs.get("ssl_keyfile")
     path_prefix = kwargs.get("path_prefix") or "/"
-    disable_argument_logging = kwargs.get("disable_argument_logging")
 
     # Configure basic logging
     logging.basicConfig(
@@ -214,6 +213,8 @@ async def run(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    main_app.state.disable_argument_logging = kwargs.get("disable_argument_logging")
 
     # Add middleware to protect also documentation and spec
     if api_key and strict_auth:
