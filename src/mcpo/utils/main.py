@@ -27,6 +27,8 @@ MCP_ERROR_TO_HTTP_STATUS = {
     INTERNAL_ERROR: 500,
 }
 
+logger = logging.getLogger(__name__)
+
 
 def process_tool_response(result: CallToolResult) -> list:
     """Universal response processor for all tool endpoints"""
@@ -263,9 +265,9 @@ def get_tool_handler(
             async def tool(form_data: FormModel) -> ResponseModel:
                 args = form_data.model_dump(exclude_none=True, by_alias=True)
                 if disable_argument_logging:
-                    print(f"Calling endpoint: {endpoint_name}")
+                    logger.info(f"Calling endpoint: {endpoint_name}")
                 else:
-                    print(f"Calling endpoint: {endpoint_name}, with args: {args}")
+                    logger.info(f"Calling endpoint: {endpoint_name}, with args: {args}")
 
                 try:
                     result = await session.call_tool(endpoint_name, arguments=args)
