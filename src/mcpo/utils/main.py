@@ -263,6 +263,8 @@ def get_tool_handler(
             async def tool(form_data: FormModel) -> ResponseModel:
                 args = form_data.model_dump(exclude_none=True, by_alias=True)
                 if not disable_argument_logging:
+                    print(f"Calling endpoint: {endpoint_name}")
+                else:
                     print(f"Calling endpoint: {endpoint_name}, with args: {args}")
                 try:
                     result = await session.call_tool(endpoint_name, arguments=args)
