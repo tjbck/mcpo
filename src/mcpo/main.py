@@ -366,5 +366,4 @@ async def run(
     )
     server = uvicorn.Server(config)
 
-    try:
-        await server.serve()
+    await server.serve()
