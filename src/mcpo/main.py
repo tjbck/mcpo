@@ -71,6 +71,7 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
             endpoint_name,
             form_model_fields,
             response_model_fields,
+            disable_argument_logging
         )
 
         app.post(
@@ -178,6 +179,7 @@ async def run(
     ssl_certfile = kwargs.get("ssl_certfile")
     ssl_keyfile = kwargs.get("ssl_keyfile")
     path_prefix = kwargs.get("path_prefix") or "/"
+    disable_argument_logging = kwargs.get("disable_argument_logging")
 
     # Configure basic logging
     logging.basicConfig(

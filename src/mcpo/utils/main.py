@@ -247,6 +247,7 @@ def get_tool_handler(
     endpoint_name,
     form_model_fields,
     response_model_fields=None,
+    disable_argument_logging=False
 ):
     if form_model_fields:
         FormModel = create_model(f"{endpoint_name}_form_model", **form_model_fields)
@@ -261,7 +262,8 @@ def get_tool_handler(
         ):  # Parameterized endpoint
             async def tool(form_data: FormModel) -> ResponseModel:
                 args = form_data.model_dump(exclude_none=True, by_alias=True)
-                print(f"Calling endpoint: {endpoint_name}, with args: {args}")
+                if not disable_argument_logging:
+                    print(f"Calling endpoint: {endpoint_name}, with args: {args}")
                 try:
                     result = await session.call_tool(endpoint_name, arguments=args)
 
