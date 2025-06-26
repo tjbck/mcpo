@@ -422,7 +422,7 @@ async def safe_lifespan(app: FastAPI):
             os.makedirs(worker_npx_cache, exist_ok=True)
 
             worker_env = {**env}
-            logger.info(f"worker_env after copy ({len(worker_env)} items):")
+            logger.info(f"worker_env after copy ({worker_env} items):")
             worker_env.update({
                 "NPM_CONFIG_CACHE": worker_npm_cache,
                 "npm_config_cache": worker_npm_cache,
