@@ -223,7 +223,7 @@ async def run(
         try:
             headers = json.loads(headers)
         except json.JSONDecodeError:
-            print("Warning: Invalid JSON format for headers. Headers will be ignored.")
+            logger.warning("Invalid JSON format for headers. Headers will be ignored.")
             headers = None
 
     if server_type == "sse":
