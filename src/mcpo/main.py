@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import logging
@@ -9,7 +10,6 @@ import uvicorn
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from starlette.routing import Mount
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 from mcpo.utils.main import get_model_fields, get_tool_handler
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
+from mcpo.utils.sse import sse_client_loop
 
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
@@ -117,16 +118,20 @@ async def lifespan(app: FastAPI):
                     yield
         if server_type == "sse":
             headers = getattr(app.state, "headers", None)
-            async with sse_client(
-                url=args[0], sse_read_timeout=None, headers=headers
-            ) as (
-                reader,
-                writer,
-            ):
-                async with ClientSession(reader, writer) as session:
-                    app.state.session = session
-                    await create_dynamic_endpoints(app, api_dependency=api_dependency)
-                    yield
+            sse_task = asyncio.create_task(sse_client_loop(
+                url=args[0],
+                headers=headers,
+                api_dependency=api_dependency,
+                create_dynamic_endpoints=create_dynamic_endpoints,
+                app=app
+            ))
+            yield
+            if sse_task:
+                sse_task.cancel()
+                try:
+                    await sse_task
+                except asyncio.CancelledError:
+                    pass
         if server_type == "streamablehttp" or server_type == "streamable_http":
             headers = getattr(app.state, "headers", None)
 
