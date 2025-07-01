@@ -281,7 +281,9 @@ def get_tool_handler(
 
                     response_data = process_tool_response(result)
                     final_response = (
-                        response_data[0] if len(response_data) == 1 else response_data
+                        {"result": response_data[0]}
+                        if len(response_data) == 1
+                        else response_data
                     )
                     return final_response
 
@@ -335,7 +337,9 @@ def get_tool_handler(
 
                     response_data = process_tool_response(result)
                     final_response = (
-                        response_data[0] if len(response_data) == 1 else response_data
+                        {"result": response_data[0]}
+                        if len(response_data) == 1
+                        else response_data
                     )
                     return final_response
 
